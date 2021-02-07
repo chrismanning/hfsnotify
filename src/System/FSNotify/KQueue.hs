@@ -74,7 +74,7 @@ instance FileListener KQueueListener () where
     -- add events to be monitored
     traceIO "adding events to kqueue to be monitored"
     traceShowM eventsToMonitor
-    _ <- kevent kq (fmap (setFlag EvAdd) eventsToMonitor) 0 Nothing
+    _ <- kevent kq (fmap (setFlag EvAdd . setFlag EvOneshot) eventsToMonitor) 0 Nothing
     traceIO "events added to kqueue"
     listenerThreadId <- forkIO $ forever $ do
       traceIO "waiting for event from kqueue"
@@ -101,10 +101,14 @@ instance FileListener KQueueListener () where
                   Added {eventPath, eventIsDirectory=IsFile} ->
                     modifyMVar_ ws $ \ws -> do
                       traceIO $ "watching new file " <> show eventPath
-                      ffd <- openFd eventPath ReadOnly Nothing defaultFileFlags
-                      let event = mkFileEvent (FdPath eventPath ffd)
-                      _ <- kevent kq [setFlag EvAdd event] 0 Nothing
-                      pure ws
+                      case ws !? dir of
+                        Just (DirWatcher kq tid dfd ffds) -> do
+                          ffd <- FdPath eventPath <$> openFd eventPath ReadOnly Nothing defaultFileFlags
+                          let event = mkFileEvent ffd
+                          _ <- kevent kq [setFlag EvAdd . setFlag EvOneshot $ event] 0 Nothing
+                          let newWatcher = DirWatcher kq tid dfd (ffd:ffds)
+                          pure (M.insert dir newWatcher ws)
+                        Nothing -> pure ws
                   Removed {eventPath, eventIsDirectory=IsFile} ->
                     modifyMVar_ ws $ \ws -> do
                       traceIO $ "removing file " <> show eventPath <> " from watch state"
@@ -127,7 +131,10 @@ instance FileListener KQueueListener () where
                       case ws !? eventPath of
                         Just w -> killWatcher w >> pure (M.delete eventPath ws)
                         Nothing -> pure ws
-                  _ -> pure ()
+                  _any -> do
+                    traceIO "re-adding event to kqueue"
+                    _ <- kevent kq [setFlag EvAdd . setFlag EvOneshot $ change] 0 Nothing
+                    pure ()
                 traceIO $ "invoking callback with " <> show changeEvent
                 callback changeEvent
     let watcher = DirWatcher kq listenerThreadId (FdPath dir dfd) ffds
