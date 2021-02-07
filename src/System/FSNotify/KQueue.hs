@@ -83,60 +83,61 @@ instance FileListener KQueueListener () where
           myThreadId >>= killThread
         Just (DirWatcher kq _ dfd ffds) -> do
           traceIO "waiting for event from kqueue"
-          -- block until an event occurs
-          [change] <- kevent kq [] 1 Nothing
-          traceIO $ "event received: " <> show change
-          eventTime <- systemToUTCTime <$> getSystemTime
-          let allfds = dfd : ffds
-          getPath change allfds >>= \case
-            -- no path for fd - throw exception?
-            Nothing -> traceIO ("no path for fd " <> show dfd) >> pure ()
-            Just (eventPath, eventIsDirectory) -> do
-              traceIO $ "eventPath: " <> eventPath
-              events <- filter actPred <$> convertToEvents change eventPath eventTime eventIsDirectory allfds
-              traceIO $ "converted events: " <> show events
-              forM_ events $ \changeEvent -> do
-                traceIO $ "actPred returned True for event " <> show changeEvent
-                case changeEvent of
-                  Added {eventPath, eventIsDirectory=IsFile} ->
-                    modifyMVar_ ws $ \ws -> do
-                      traceIO $ "watching new file " <> show eventPath
-                      case ws !? dir of
-                        Just (DirWatcher kq tid dfd ffds) -> do
-                          ffd <- FdPath eventPath <$> openFd eventPath ReadOnly Nothing defaultFileFlags
-                          let event = mkFileEvent ffd
-                          _ <- kevent kq [setFlag EvAdd . setFlag EvOneshot $ event] 0 Nothing
-                          let newWatcher = DirWatcher kq tid dfd (ffd:ffds)
-                          pure (M.insert dir newWatcher ws)
-                        Nothing -> pure ws
-                  Removed {eventPath, eventIsDirectory=IsFile} ->
-                    modifyMVar_ ws $ \ws -> do
-                      traceIO $ "removing file " <> show eventPath <> " from watch state"
-                      case ws !? dir of
-                        Just w -> stopWatchingPath w eventPath >>= \case
-                          Just w -> pure $ M.insert dir w ws
-                          Nothing -> pure $ M.delete dir ws
-                        Nothing -> pure ws
-                  Removed {eventPath, eventIsDirectory=IsDirectory} ->
-                    modifyMVar_ ws $ \ws -> do
-                      traceIO $ "removing dir " <> show eventPath <> " from watch state"
-                      case ws !? dir of
-                        Just w -> stopWatchingPath w eventPath >>= \case
-                          Just w -> pure $ M.insert dir w ws
-                          Nothing -> pure $ M.delete dir ws
-                        Nothing -> pure ws
-                  WatchedDirectoryRemoved {eventPath} -> do
-                    modifyMVar_ ws $ \ws -> do
-                      traceIO $ "removing watched dir " <> show eventPath <> " from watch state"
-                      case ws !? eventPath of
-                        Just w -> killWatcher w >> pure (M.delete eventPath ws)
-                        Nothing -> pure ws
-                  _any -> do
-                    traceIO "re-adding event to kqueue"
-                    _ <- kevent kq [setFlag EvAdd . setFlag EvOneshot $ change] 0 Nothing
-                    pure ()
-                traceIO $ "invoking callback with " <> show changeEvent
-                callback changeEvent
+          -- block until an event occurs or 1s timeout
+          changes <- kevent kq [] 1 (Just 1)
+          forM_ changes $ \change -> do
+            traceIO $ "event received: " <> show change
+            eventTime <- systemToUTCTime <$> getSystemTime
+            let allfds = dfd : ffds
+            getPath change allfds >>= \case
+              -- no path for fd - throw exception?
+              Nothing -> traceIO ("no path for fd " <> show dfd) >> pure ()
+              Just (eventPath, eventIsDirectory) -> do
+                traceIO $ "eventPath: " <> eventPath
+                events <- filter actPred <$> convertToEvents change eventPath eventTime eventIsDirectory allfds
+                traceIO $ "converted events: " <> show events
+                forM_ events $ \changeEvent -> do
+                  traceIO $ "actPred returned True for event " <> show changeEvent
+                  case changeEvent of
+                    Added {eventPath, eventIsDirectory=IsFile} ->
+                      modifyMVar_ ws $ \ws -> do
+                        traceIO $ "watching new file " <> show eventPath
+                        case ws !? dir of
+                          Just (DirWatcher kq tid dfd ffds) -> do
+                            ffd <- FdPath eventPath <$> openFd eventPath ReadOnly Nothing defaultFileFlags
+                            let event = mkFileEvent ffd
+                            _ <- kevent kq [setFlag EvAdd . setFlag EvOneshot $ event] 0 Nothing
+                            let newWatcher = DirWatcher kq tid dfd (ffd:ffds)
+                            pure (M.insert dir newWatcher ws)
+                          Nothing -> pure ws
+                    Removed {eventPath, eventIsDirectory=IsFile} ->
+                      modifyMVar_ ws $ \ws -> do
+                        traceIO $ "removing file " <> show eventPath <> " from watch state"
+                        case ws !? dir of
+                          Just w -> stopWatchingPath w eventPath >>= \case
+                            Just w -> pure $ M.insert dir w ws
+                            Nothing -> pure $ M.delete dir ws
+                          Nothing -> pure ws
+                    Removed {eventPath, eventIsDirectory=IsDirectory} ->
+                      modifyMVar_ ws $ \ws -> do
+                        traceIO $ "removing dir " <> show eventPath <> " from watch state"
+                        case ws !? dir of
+                          Just w -> stopWatchingPath w eventPath >>= \case
+                            Just w -> pure $ M.insert dir w ws
+                            Nothing -> pure $ M.delete dir ws
+                          Nothing -> pure ws
+                    WatchedDirectoryRemoved {eventPath} -> do
+                      modifyMVar_ ws $ \ws -> do
+                        traceIO $ "removing watched dir " <> show eventPath <> " from watch state"
+                        case ws !? eventPath of
+                          Just w -> killWatcher w >> pure (M.delete eventPath ws)
+                          Nothing -> pure ws
+                    _any -> do
+                      traceIO "re-adding event to kqueue"
+                      _ <- kevent kq [setFlag EvAdd . setFlag EvOneshot $ change] 0 Nothing
+                      pure ()
+                  traceIO $ "invoking callback with " <> show changeEvent
+                  callback changeEvent
     let watcher = DirWatcher kq listenerThreadId (FdPath dir dfd) ffds
     modifyMVar_ ws $ \ws -> do
       pure $ M.insert dir watcher ws
