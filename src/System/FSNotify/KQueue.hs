@@ -28,6 +28,8 @@ import System.PosixCompat.Types
 import Data.Time.Clock.System
 import System.KQueue
 
+import Debug.Trace
+
 newtype KQueueListener = KQueueListener (MVar Watchers)
 
 type NativeManager = KQueueListener
@@ -66,23 +68,33 @@ instance FileListener KQueueListener () where
       FdPath path <$> openFd path ReadOnly Nothing defaultFileFlags
     let eventsToMonitor = dirEvent : fmap mkFileEvent ffds
     -- create new kqueue
+    traceIO "creating kqueue"
     kq <- kqueue
+    traceIO "kqueue created"
     -- add events to be monitored
+    traceIO "adding events to kqueue to be monitored"
+    traceShowM eventsToMonitor
     _ <- kevent kq (fmap (setFlag EvAdd) eventsToMonitor) 0 Nothing
+    traceIO "events added to kqueue"
     listenerThreadId <- forkIO $ forever $ do
+      traceIO "waiting for event from kqueue"
       -- block until an event occurs
       [change] <- kevent kq [] 1 Nothing
+      traceIO $ "event received: " <> show change
       eventTime <- systemToUTCTime <$> getSystemTime
       getPath change (FdPath dir dfd : ffds) >>= \case
         -- no path for fd - throw exception?
-        Nothing -> pure ()
-        Just (eventPath, eventIsDirectory) ->
+        Nothing -> traceIO ("no path for fd " <> show dfd) >> pure ()
+        Just (eventPath, eventIsDirectory) -> do
+          traceIO $ "eventPath: " <> eventPath
           case convertToEvent change eventPath eventTime eventIsDirectory of
             Just changeEvent | actPred changeEvent -> do
+              traceIO "actPred returned True"
                 -- TODO start watching new files
               case changeEvent of
                 Removed {eventPath, eventIsDirectory=IsFile} ->
                   modifyMVar_ ws $ \ws -> do
+                    traceIO $ "removing file " <> show eventPath <> " from watch state"
                     case ws !? dir of
                       Just w -> stopWatchingPath w eventPath >>= \case
                         Just w -> pure $ M.insert dir w ws
@@ -90,6 +102,7 @@ instance FileListener KQueueListener () where
                       Nothing -> pure ws
                 Removed {eventPath, eventIsDirectory=IsDirectory} ->
                   modifyMVar_ ws $ \ws -> do
+                    traceIO $ "removing dir " <> show eventPath <> " from watch state"
                     case ws !? dir of
                       Just w -> stopWatchingPath w eventPath >>= \case
                         Just w -> pure $ M.insert dir w ws
@@ -97,10 +110,12 @@ instance FileListener KQueueListener () where
                       Nothing -> pure ws
                 WatchedDirectoryRemoved {eventPath} -> do
                   modifyMVar_ ws $ \ws -> do
+                    traceIO $ "removing watched dir " <> show eventPath <> " from watch state"
                     case ws !? eventPath of
                       Just w -> killWatcher w >> pure (M.delete eventPath ws)
                       Nothing -> pure ws
                 _ -> pure ()
+              traceIO $ "invoking callback with " <> show changeEvent
               callback changeEvent
             _otherwise -> pure ()
     let watcher = DirWatcher kq listenerThreadId (FdPath dir dfd) ffds
@@ -149,8 +164,12 @@ closeFdPath (FdPath _ fd) = closeFd fd
 
 stopWatchingPath :: Watcher -> FilePath -> IO (Maybe Watcher)
 stopWatchingPath w@(DirWatcher kq tid dfd@(FdPath root _) ffds) stopPath
-  | root == stopPath = killWatcher w >> pure Nothing
+  | root == stopPath = do
+    traceIO $ "stopping watch on " <> show stopPath
+    traceIO "path is watch root; killing watcher"
+    killWatcher w >> pure Nothing
   | otherwise = do
+    traceIO $ "stopping watch on " <> show stopPath
     newFfds <- forM ffds $ \ffd@(FdPath path _) ->
       if stopPath `L.isPrefixOf` path then do
         closeFdPath ffd
