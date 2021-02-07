@@ -94,12 +94,13 @@ instance FileListener KQueueListener () where
             Just (eventPath, eventIsDirectory) -> do
               traceIO $ "eventPath: " <> eventPath
               events <- filter actPred <$> convertToEvents change eventPath eventTime eventIsDirectory allfds
+              traceIO $ "converted events: " <> show events
               forM_ events $ \changeEvent -> do
-                traceIO "actPred returned True"
-                  -- TODO start watching new files
+                traceIO $ "actPred returned True for event " <> show changeEvent
                 case changeEvent of
                   Added {eventPath, eventIsDirectory=IsFile} ->
                     modifyMVar_ ws $ \ws -> do
+                      traceIO $ "watching new file " <> show eventPath
                       ffd <- openFd eventPath ReadOnly Nothing defaultFileFlags
                       let event = mkFileEvent (FdPath eventPath ffd)
                       _ <- kevent kq [setFlag EvAdd event] 0 Nothing
