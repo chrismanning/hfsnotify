@@ -39,7 +39,7 @@ Library
                         , System.FSNotify.Polling
                         , System.FSNotify.Types
   Hs-Source-Dirs:       src
-  GHC-Options:          -Wall
+  GHC-Options:          -Wall -fno-warn-name-shadowing
   if os(linux)
     CPP-Options:        -DOS_Linux
     Other-Modules:      System.FSNotify.Linux
