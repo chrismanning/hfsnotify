@@ -157,7 +157,7 @@ convertToEvents KEvent {..} eventPath eventTime eventIsDirectory allfds
     mkEvent e = [e eventPath eventTime eventIsDirectory]
     mkNewFileEvent = do
       allFiles <- findFiles False eventPath
-      let newFiles = allFiles `L.intersect` fmap fdPath allfds
+      let newFiles = allFiles L.\\ fmap fdPath allfds
       pure $ Added <$> newFiles <*> pure eventTime <*> pure IsFile
 
 setFlag :: Flag -> KEvent -> KEvent
