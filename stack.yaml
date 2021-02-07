@@ -4,4 +4,5 @@ packages:
 - '.'
 
 extra-deps:
-  - kqueue-0.2
+  - github: chrismanning/kqueue
+    commit: 70f401e065c2cf5143446f6486c996647bccc747

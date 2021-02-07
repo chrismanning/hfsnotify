@@ -5,12 +5,16 @@
 
 packages:
 - completed:
-    hackage: kqueue-0.2@sha256:47d6c1083e60d55a64511c944629a507bda70906e5317bb6f906d64b2cb78a9f,1369
+    size: 7932
+    url: https://github.com/chrismanning/kqueue/archive/70f401e065c2cf5143446f6486c996647bccc747.tar.gz
+    name: kqueue
+    version: '0.2'
+    sha256: fd07f2ba999bb1feb3fec3fb2463e0f03b529fd55c238839e06211f2d88680a1
     pantry-tree:
-      size: 468
-      sha256: c445e176cb972a3c397aaf0296204600213058a2234305fc7f76cbc7f6d6cc07
+      size: 725
+      sha256: 6958230661ed3316462012ee3048fb5526fe7438c4e2a36244ecb65d9af44884
   original:
-    hackage: kqueue-0.2
+    url: https://github.com/chrismanning/kqueue/archive/70f401e065c2cf5143446f6486c996647bccc747.tar.gz
 snapshots:
 - completed:
     size: 532386
