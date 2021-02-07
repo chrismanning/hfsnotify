@@ -90,7 +90,11 @@ import System.FSNotify.Win32
 #    ifdef OS_Mac
 import System.FSNotify.OSX
 #    else
+#      ifdef OS_FreeBSD
+import System.FSNotify.KQueue
+#      else
 type NativeManager = PollManager
+#      endif
 #    endif
 #  endif
 #endif
