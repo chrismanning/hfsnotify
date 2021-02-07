@@ -12,6 +12,7 @@ module System.FSNotify.KQueue (
 
 import Control.Concurrent
 import Control.Concurrent.MVar
+import Control.Exception.Safe
 import Control.Monad
 import qualified Data.List as L
 import qualified Data.Map as M
@@ -188,7 +189,7 @@ data FdPath = FdPath {
 } deriving Show
 
 closeFdPath :: FdPath -> IO ()
-closeFdPath (FdPath _ fd) = closeFd fd
+closeFdPath (FdPath _ fd) = handleAny (const $ pure()) $ closeFd fd
 
 stopWatchingPath :: Watcher -> FilePath -> IO (Maybe Watcher)
 stopWatchingPath w@(DirWatcher kq tid dfd@(FdPath root _) ffds) stopPath
