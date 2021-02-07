@@ -10,7 +10,7 @@ module System.FSNotify.KQueue (
   KQueueListener ()
 ) where
 
-import Control.Concurrent (ThreadId, forkIO, killThread)
+import Control.Concurrent
 import Control.Concurrent.MVar
 import Control.Monad
 import qualified Data.List as L
@@ -82,42 +82,53 @@ instance FileListener KQueueListener () where
       [change] <- kevent kq [] 1 Nothing
       traceIO $ "event received: " <> show change
       eventTime <- systemToUTCTime <$> getSystemTime
-      getPath change (FdPath dir dfd : ffds) >>= \case
-        -- no path for fd - throw exception?
-        Nothing -> traceIO ("no path for fd " <> show dfd) >> pure ()
-        Just (eventPath, eventIsDirectory) -> do
-          traceIO $ "eventPath: " <> eventPath
-          case convertToEvent change eventPath eventTime eventIsDirectory of
-            Just changeEvent | actPred changeEvent -> do
-              traceIO "actPred returned True"
-                -- TODO start watching new files
-              case changeEvent of
-                Removed {eventPath, eventIsDirectory=IsFile} ->
-                  modifyMVar_ ws $ \ws -> do
-                    traceIO $ "removing file " <> show eventPath <> " from watch state"
-                    case ws !? dir of
-                      Just w -> stopWatchingPath w eventPath >>= \case
-                        Just w -> pure $ M.insert dir w ws
-                        Nothing -> pure $ M.delete dir ws
-                      Nothing -> pure ws
-                Removed {eventPath, eventIsDirectory=IsDirectory} ->
-                  modifyMVar_ ws $ \ws -> do
-                    traceIO $ "removing dir " <> show eventPath <> " from watch state"
-                    case ws !? dir of
-                      Just w -> stopWatchingPath w eventPath >>= \case
-                        Just w -> pure $ M.insert dir w ws
-                        Nothing -> pure $ M.delete dir ws
-                      Nothing -> pure ws
-                WatchedDirectoryRemoved {eventPath} -> do
-                  modifyMVar_ ws $ \ws -> do
-                    traceIO $ "removing watched dir " <> show eventPath <> " from watch state"
-                    case ws !? eventPath of
-                      Just w -> killWatcher w >> pure (M.delete eventPath ws)
-                      Nothing -> pure ws
-                _ -> pure ()
-              traceIO $ "invoking callback with " <> show changeEvent
-              callback changeEvent
-            _otherwise -> pure ()
+      M.lookup dir <$> readMVar ws >>= \case
+        Nothing -> do
+          traceIO "watcher no longer exists but watch thread still running; killing self"
+          myThreadId >>= killThread
+        Just (DirWatcher kq _ dfd ffds) -> do
+          let allfds = dfd : ffds
+          getPath change allfds >>= \case
+            -- no path for fd - throw exception?
+            Nothing -> traceIO ("no path for fd " <> show dfd) >> pure ()
+            Just (eventPath, eventIsDirectory) -> do
+              traceIO $ "eventPath: " <> eventPath
+              events <- filter actPred <$> convertToEvents change eventPath eventTime eventIsDirectory allfds
+              forM_ events $ \changeEvent -> do
+                traceIO "actPred returned True"
+                  -- TODO start watching new files
+                case changeEvent of
+                  Added {eventPath, eventIsDirectory=IsFile} ->
+                    modifyMVar_ ws $ \ws -> do
+                      ffd <- openFd eventPath ReadOnly Nothing defaultFileFlags
+                      let event = mkFileEvent (FdPath eventPath ffd)
+                      _ <- kevent kq [setFlag EvAdd event] 0 Nothing
+                      pure ws
+                  Removed {eventPath, eventIsDirectory=IsFile} ->
+                    modifyMVar_ ws $ \ws -> do
+                      traceIO $ "removing file " <> show eventPath <> " from watch state"
+                      case ws !? dir of
+                        Just w -> stopWatchingPath w eventPath >>= \case
+                          Just w -> pure $ M.insert dir w ws
+                          Nothing -> pure $ M.delete dir ws
+                        Nothing -> pure ws
+                  Removed {eventPath, eventIsDirectory=IsDirectory} ->
+                    modifyMVar_ ws $ \ws -> do
+                      traceIO $ "removing dir " <> show eventPath <> " from watch state"
+                      case ws !? dir of
+                        Just w -> stopWatchingPath w eventPath >>= \case
+                          Just w -> pure $ M.insert dir w ws
+                          Nothing -> pure $ M.delete dir ws
+                        Nothing -> pure ws
+                  WatchedDirectoryRemoved {eventPath} -> do
+                    modifyMVar_ ws $ \ws -> do
+                      traceIO $ "removing watched dir " <> show eventPath <> " from watch state"
+                      case ws !? eventPath of
+                        Just w -> killWatcher w >> pure (M.delete eventPath ws)
+                        Nothing -> pure ws
+                  _ -> pure ()
+                traceIO $ "invoking callback with " <> show changeEvent
+                callback changeEvent
     let watcher = DirWatcher kq listenerThreadId (FdPath dir dfd) ffds
     modifyMVar_ ws $ \ws -> do
       pure $ M.insert dir watcher ws
@@ -133,15 +144,20 @@ getPath KEvent {..} fds = do
     (FdPath path _ : _) -> pure $ Just (path, eventIsDirectory)
     _ -> pure Nothing
 
-convertToEvent :: KEvent -> FilePath -> UTCTime -> EventIsDirectory -> Maybe Event
-convertToEvent KEvent {..} eventPath eventTime eventIsDirectory
-  | NoteDelete `elem` fflags = mkEvent Removed
-  | NoteWrite `elem` fflags = mkEvent Modified
-  | NoteAttrib `elem` fflags = mkEvent ModifiedAttributes
-  | NoteRename `elem` fflags = mkEvent Removed
-  | otherwise = Nothing
+convertToEvents :: KEvent -> FilePath -> UTCTime -> EventIsDirectory -> [FdPath] -> IO [Event]
+convertToEvents KEvent {..} eventPath eventTime eventIsDirectory allfds
+  | NoteDelete `elem` fflags = pure $ mkEvent Removed
+  | eventIsDirectory == IsFile && NoteWrite `elem` fflags = pure $ mkEvent Modified
+  | eventIsDirectory == IsDirectory && NoteWrite `elem` fflags = mkNewFileEvent
+  | NoteAttrib `elem` fflags = pure $ mkEvent ModifiedAttributes
+  | NoteRename `elem` fflags = pure $ mkEvent Removed
+  | otherwise = pure []
   where
-    mkEvent e = Just $ e eventPath eventTime eventIsDirectory
+    mkEvent e = [e eventPath eventTime eventIsDirectory]
+    mkNewFileEvent = do
+      allFiles <- findFiles False eventPath
+      let newFiles = allFiles `L.intersect` fmap fdPath allfds
+      pure $ Added <$> newFiles <*> pure eventTime <*> pure IsFile
 
 setFlag :: Flag -> KEvent -> KEvent
 setFlag flag ev = ev {flags = flag : flags ev}
@@ -157,7 +173,10 @@ killWatcher (DirWatcher _kq tid dfd ffds) = do
 
 type Watchers = M.Map FilePath Watcher
 
-data FdPath = FdPath FilePath Fd
+data FdPath = FdPath {
+  fdPath :: FilePath,
+  fd :: Fd
+} deriving Show
 
 closeFdPath :: FdPath -> IO ()
 closeFdPath (FdPath _ fd) = closeFd fd
