@@ -77,16 +77,16 @@ instance FileListener KQueueListener () where
     _ <- kevent kq (fmap (setFlag EvAdd . setFlag EvOneshot) eventsToMonitor) 0 Nothing
     traceIO "events added to kqueue"
     listenerThreadId <- forkIO $ forever $ do
-      traceIO "waiting for event from kqueue"
-      -- block until an event occurs
-      [change] <- kevent kq [] 1 Nothing
-      traceIO $ "event received: " <> show change
-      eventTime <- systemToUTCTime <$> getSystemTime
       M.lookup dir <$> readMVar ws >>= \case
         Nothing -> do
           traceIO "watcher no longer exists but watch thread still running; killing self"
           myThreadId >>= killThread
         Just (DirWatcher kq _ dfd ffds) -> do
+          traceIO "waiting for event from kqueue"
+          -- block until an event occurs
+          [change] <- kevent kq [] 1 Nothing
+          traceIO $ "event received: " <> show change
+          eventTime <- systemToUTCTime <$> getSystemTime
           let allfds = dfd : ffds
           getPath change allfds >>= \case
             -- no path for fd - throw exception?
