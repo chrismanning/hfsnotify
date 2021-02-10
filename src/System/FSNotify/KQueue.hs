@@ -150,8 +150,8 @@ convertToEvents :: FdPath -> KEvent -> UTCTime -> [FdPath] -> IO [Event]
 convertToEvents (FdPath rootPath rootFd) kev@KEvent {..} eventTime fds
   | NoteWrite `elem` fflags = handleWriteEvent
   | NoteDelete `elem` fflags = if (fromIntegral rootFd) == ident then
-      mkEvent Removed
-    else mkEvent WatchedDirectoryRemoved
+      mkEvent WatchedDirectoryRemoved
+    else mkEvent Removed
   | NoteAttrib `elem` fflags = mkEvent ModifiedAttributes
   | NoteRename `elem` fflags = mkEvent Removed
   | otherwise = pure []
