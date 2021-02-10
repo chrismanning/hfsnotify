@@ -149,7 +149,9 @@ instance Exception KQueueError
 convertToEvents :: FdPath -> KEvent -> UTCTime -> [FdPath] -> IO [Event]
 convertToEvents (FdPath rootPath rootFd) kev@KEvent {..} eventTime fds
   | NoteWrite `elem` fflags = handleWriteEvent
-  | NoteDelete `elem` fflags = mkEvent Removed
+  | NoteDelete `elem` fflags = if (fromIntegral rootFd) == ident then
+      mkEvent Removed
+    else mkEvent WatchedDirectoryRemoved
   | NoteAttrib `elem` fflags = mkEvent ModifiedAttributes
   | NoteRename `elem` fflags = mkEvent Removed
   | otherwise = pure []
@@ -164,13 +166,12 @@ convertToEvents (FdPath rootPath rootFd) kev@KEvent {..} eventTime fds
       (eventPath, eventIsDirectory) <- getEventPath
       pure [e eventPath eventTime eventIsDirectory]
     handleWriteEvent = do
-      if (fromIntegral rootFd) == ident then
-        fileExist rootPath >>= \case
-          False -> mkEvent WatchedDirectoryRemoved
-          True -> do
-            allFiles <- findFiles False rootPath
-            let newFiles = allFiles L.\\ fmap fdPath fds
-            pure $ Added <$> newFiles <*> pure eventTime <*> pure IsFile
+      if (fromIntegral rootFd) == ident then do
+          filesAndDirs <- findFilesAndDirs False rootPath
+          let newFiles = filesAndDirs L.\\ fmap fdPath fds
+          forM newFiles $ \newFile -> isRegularFile <$> getFileStatus newFile >>= \case
+            True -> pure $ Added newFile eventTime IsFile
+            False -> pure $ Added newFile eventTime IsDirectory
         else do
           (eventPath, eventIsDirectory) <- getEventPath
           case eventIsDirectory of
