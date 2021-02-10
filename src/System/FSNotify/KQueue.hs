@@ -171,14 +171,14 @@ convertToEvents (FdPath rootPath rootFd) kev@KEvent {..} eventTime fds
             allFiles <- findFiles False rootPath
             let newFiles = allFiles L.\\ fmap fdPath fds
             pure $ Added <$> newFiles <*> pure eventTime <*> pure IsFile
-      else do
-        (eventPath, eventIsDirectory) <- getEventPath
-        case eventIsDirectory of
-          IsDirectory -> do
-            allFiles <- findFiles False eventPath
-            let newFiles = allFiles L.\\ fmap fdPath fds
-            pure $ Added <$> newFiles <*> pure eventTime <*> pure IsFile
-          IsFile -> pure [Modified eventPath eventTime eventIsDirectory]
+        else do
+          (eventPath, eventIsDirectory) <- getEventPath
+          case eventIsDirectory of
+            IsDirectory -> do
+              allFiles <- findFiles False eventPath
+              let newFiles = allFiles L.\\ fmap fdPath fds
+              pure $ Added <$> newFiles <*> pure eventTime <*> pure IsFile
+            IsFile -> pure [Modified eventPath eventTime eventIsDirectory]
 
 getPath :: KEvent -> [FdPath] -> IO (Maybe (FilePath, EventIsDirectory))
 getPath KEvent {..} fds = do
