@@ -163,9 +163,15 @@ convertToEvents (FdPath rootPath rootFd) kev@KEvent {..} eventTime fds
     mkEvent e = do
       (eventPath, eventIsDirectory) <- getEventPath
       pure [e eventPath eventTime eventIsDirectory]
-    handleWriteEvent
-      | (fromIntegral rootFd) == ident = mkEvent WatchedDirectoryRemoved
-      | otherwise = do
+    handleWriteEvent = do
+      if (fromIntegral rootFd) == ident then
+        fileExist rootPath >>= \case
+          False -> mkEvent WatchedDirectoryRemoved
+          True -> do
+            allFiles <- findFiles False rootPath
+            let newFiles = allFiles L.\\ fmap fdPath fds
+            pure $ Added <$> newFiles <*> pure eventTime <*> pure IsFile
+      else do
         (eventPath, eventIsDirectory) <- getEventPath
         case eventIsDirectory of
           IsDirectory -> do
