@@ -65,8 +65,7 @@ instance FileListener KQueueListener () where
             }
     ffds <- forM files $ \path ->
       FdPath path <$> openFd path ReadOnly Nothing defaultFileFlags
-    onlyFiles <- filterM (\(FdPath _ fd) -> isRegularFile <$> getFdStatus fd) ffds
-    let eventsToMonitor = dirEvent : fmap mkFileEvent onlyFiles
+    let eventsToMonitor = dirEvent : fmap mkFileEvent ffds
     -- create new kqueue
     traceIO "creating kqueue"
     kq <- kqueue
@@ -98,15 +97,14 @@ instance FileListener KQueueListener () where
               traceIO $ "invoking callback with " <> show changeEvent
               callback changeEvent
               case changeEvent of
-                Added {eventPath, eventIsDirectory} ->
+                Added {eventPath} ->
                   modifyMVar_ ws $ \ws -> do
                     traceIO $ "watching new file " <> show eventPath
                     case ws !? dir of
                       Just (DirWatcher kq tid dfd ffds) -> do
                         ffd <- FdPath eventPath <$> openFd eventPath ReadOnly Nothing defaultFileFlags
                         let event = mkFileEvent ffd
-                        when (eventIsDirectory == IsFile) $ void $
-                          kevent kq [setFlag EvAdd . setFlag EvOneshot $ event] 0 Nothing
+                        _ <- kevent kq [setFlag EvAdd . setFlag EvOneshot $ event] 0 Nothing
                         let newWatcher = DirWatcher kq tid dfd (ffd:ffds)
                         pure (M.insert dir newWatcher ws)
                       Nothing -> pure ws
@@ -146,10 +144,12 @@ instance Exception KQueueError
 convertToEvents :: Bool -> FdPath -> KEvent -> UTCTime -> [FdPath] -> IO [Event]
 convertToEvents recurse (FdPath rootPath rootFd) kev@KEvent {..} eventTime fds
   -- sub dir removed or added
-  | NoteWrite `elem` fflags && NoteLink `elem` fflags && (recurse || (fromIntegral rootFd) == ident) = do
+  | NoteWrite `elem` fflags && NoteLink `elem` fflags = do
       dirs <- findDirs False rootPath
       let newDirs = dirs L.\\ fmap fdPath fds
+      traceIO $ "newDirs: " <> show newDirs
       let oldDirs = fmap fdPath fds L.\\ dirs
+      traceIO $ "oldDirs: " <> show oldDirs
       let removed = oldDirs <&> \oldDir -> Removed oldDir eventTime IsDirectory
       let added = newDirs <&> \newDir -> Added newDir eventTime IsDirectory
       pure (removed <> added)
