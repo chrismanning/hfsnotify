@@ -171,6 +171,7 @@ convertToEvents recurse (FdPath rootPath rootFd) kev@KEvent {..} eventTime fds
       (eventPath, eventIsDirectory) <- getEventPath
       pure [e eventPath eventTime eventIsDirectory]
     handleWriteEvent = do
+      isDir <- isDirectory <$> getFdStatus (Fd (fromIntegral ident))
       if (fromIntegral rootFd) == ident then do
           filesAndDirs <- findFilesAndDirs False rootPath
           let newFiles = filesAndDirs L.\\ fmap fdPath fds
@@ -181,6 +182,7 @@ convertToEvents recurse (FdPath rootPath rootFd) kev@KEvent {..} eventTime fds
             fileExist newFile >>= \case
               True -> pure $ Added newFile eventTime eventIsDirectory
               False -> pure $ Removed newFile eventTime eventIsDirectory
+        else if isDir && not recurse then pure []
         else do
           (eventPath, eventIsDirectory) <- getEventPath
           case eventIsDirectory of
