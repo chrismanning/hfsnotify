@@ -65,7 +65,8 @@ instance FileListener KQueueListener () where
             }
     ffds <- forM files $ \path ->
       FdPath path <$> openFd path ReadOnly Nothing defaultFileFlags
-    let eventsToMonitor = dirEvent : fmap mkFileEvent ffds
+    onlyFiles <- filterM (\(FdPath _ fd) -> isRegularFile <$> getFdStatus fd) ffds
+    let eventsToMonitor = dirEvent : fmap mkFileEvent onlyFiles
     -- create new kqueue
     traceIO "creating kqueue"
     kq <- kqueue
@@ -97,14 +98,15 @@ instance FileListener KQueueListener () where
               traceIO $ "invoking callback with " <> show changeEvent
               callback changeEvent
               case changeEvent of
-                Added {eventPath} ->
+                Added {eventPath, eventIsDirectory} ->
                   modifyMVar_ ws $ \ws -> do
                     traceIO $ "watching new file " <> show eventPath
                     case ws !? dir of
                       Just (DirWatcher kq tid dfd ffds) -> do
                         ffd <- FdPath eventPath <$> openFd eventPath ReadOnly Nothing defaultFileFlags
                         let event = mkFileEvent ffd
-                        _ <- kevent kq [setFlag EvAdd . setFlag EvOneshot $ event] 0 Nothing
+                        when (eventIsDirectory == IsFile) $ void $
+                          kevent kq [setFlag EvAdd . setFlag EvOneshot $ event] 0 Nothing
                         let newWatcher = DirWatcher kq tid dfd (ffd:ffds)
                         pure (M.insert dir newWatcher ws)
                       Nothing -> pure ws
