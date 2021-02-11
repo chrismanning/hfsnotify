@@ -93,6 +93,8 @@ instance FileListener KQueueListener () where
             traceIO $ "converted events: " <> show events
             forM_ events $ \changeEvent -> do
               traceIO $ "actPred returned True for event " <> show changeEvent
+              traceIO $ "invoking callback with " <> show changeEvent
+              callback changeEvent
               case changeEvent of
                 Added {eventPath, eventIsDirectory=IsFile} ->
                   modifyMVar_ ws $ \ws -> do
@@ -105,17 +107,9 @@ instance FileListener KQueueListener () where
                         let newWatcher = DirWatcher kq tid dfd (ffd:ffds)
                         pure (M.insert dir newWatcher ws)
                       Nothing -> pure ws
-                Removed {eventPath, eventIsDirectory=IsFile} ->
+                Removed {eventPath} ->
                   modifyMVar_ ws $ \ws -> do
-                    traceIO $ "removing file " <> show eventPath <> " from watch state"
-                    case ws !? dir of
-                      Just w -> stopWatchingPath w eventPath >>= \case
-                        Just w -> pure $ M.insert dir w ws
-                        Nothing -> pure $ M.delete dir ws
-                      Nothing -> pure ws
-                Removed {eventPath, eventIsDirectory=IsDirectory} ->
-                  modifyMVar_ ws $ \ws -> do
-                    traceIO $ "removing dir " <> show eventPath <> " from watch state"
+                    traceIO $ "removing " <> show eventPath <> " from watch state"
                     case ws !? dir of
                       Just w -> stopWatchingPath w eventPath >>= \case
                         Just w -> pure $ M.insert dir w ws
@@ -131,8 +125,6 @@ instance FileListener KQueueListener () where
                   traceIO "re-adding event to kqueue"
                   _ <- kevent kq [setFlag EvAdd . setFlag EvOneshot $ change] 0 Nothing
                   pure ()
-              traceIO $ "invoking callback with " <> show changeEvent
-              callback changeEvent
     let watcher = DirWatcher kq listenerThreadId (FdPath dir dfd) ffds
     modifyMVar_ ws $ \ws -> do
       pure $ M.insert dir watcher ws
