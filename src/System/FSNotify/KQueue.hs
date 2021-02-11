@@ -163,9 +163,13 @@ convertToEvents (FdPath rootPath rootFd) kev@KEvent {..} eventTime fds
       if (fromIntegral rootFd) == ident then do
           filesAndDirs <- findFilesAndDirs False rootPath
           let newFiles = filesAndDirs L.\\ fmap fdPath fds
-          forM newFiles $ \newFile -> isRegularFile <$> getFileStatus newFile >>= \case
-            True -> pure $ Added newFile eventTime IsFile
-            False -> pure $ Added newFile eventTime IsDirectory
+          forM newFiles $ \newFile -> do
+            eventIsDirectory <- isRegularFile <$> getFileStatus newFile >>= \case
+              True -> pure IsFile
+              False -> pure IsDirectory
+            fileExist newFile >>= \case
+              True -> pure $ Added newFile eventTime eventIsDirectory
+              False -> pure $ Removed newFile eventTime eventIsDirectory
         else do
           (eventPath, eventIsDirectory) <- getEventPath
           case eventIsDirectory of
