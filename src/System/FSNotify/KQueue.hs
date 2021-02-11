@@ -142,6 +142,14 @@ instance Exception KQueueError
 
 convertToEvents :: FdPath -> KEvent -> UTCTime -> [FdPath] -> IO [Event]
 convertToEvents (FdPath rootPath rootFd) kev@KEvent {..} eventTime fds
+  -- sub dir removed or added
+  | NoteWrite `elem` fflags && NoteLink `elem` fflags = do
+      dirs <- findDirs False rootPath
+      let newDirs = dirs L.\\ fmap fdPath fds
+      let oldDirs = fmap fdPath fds L.\\ dirs
+      let removed = oldDirs <&> \oldDir -> Removed oldDir eventTime IsDirectory
+      let added = newDirs <&> \newDir -> Added newDir eventTime IsDirectory
+      pure (removed <> added)
   | NoteWrite `elem` fflags = handleWriteEvent
   | NoteDelete `elem` fflags = if (fromIntegral rootFd) == ident then
       mkEvent WatchedDirectoryRemoved
