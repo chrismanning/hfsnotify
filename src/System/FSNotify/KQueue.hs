@@ -42,7 +42,7 @@ instance FileListener KQueueListener () where
       killAllWatchers ws = forM_ (snd <$> M.toList ws) killWatcher
   listen _config (KQueueListener ws) dir' actPred callback = do
     dir <- canonicalizeDirPath dir'
-    files <- findFiles False dir
+    files <- findFilesAndDirs False dir
     dfd <- openFd dir ReadOnly Nothing defaultFileFlags
     let dirEvent =
           KEvent
