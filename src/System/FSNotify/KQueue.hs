@@ -42,7 +42,8 @@ instance FileListener KQueueListener () where
       killAllWatchers ws = forM_ (snd <$> M.toList ws) killWatcher
   listen _config (KQueueListener ws) dir' actPred callback = do
     dir <- canonicalizeDirPath dir'
-    files <- findFiles False dir
+    files <- findFilesAndDirs False dir
+    traceIO $ "files: " <> show files
     dfd <- openFd dir ReadOnly Nothing defaultFileFlags
     let dirEvent =
           KEvent
@@ -96,7 +97,7 @@ instance FileListener KQueueListener () where
               traceIO $ "invoking callback with " <> show changeEvent
               callback changeEvent
               case changeEvent of
-                Added {eventPath, eventIsDirectory=IsFile} ->
+                Added {eventPath} ->
                   modifyMVar_ ws $ \ws -> do
                     traceIO $ "watching new file " <> show eventPath
                     case ws !? dir of
