@@ -90,7 +90,7 @@ instance FileListener KQueueListener () where
             traceIO $ "event received: " <> show change
             eventTime <- systemToUTCTime <$> getSystemTime
 --            let allfds = dfd : ffds
-            events <- filter actPred <$> convertToEvents dfd change eventTime ffds
+            events <- filter actPred <$> convertToEvents False dfd change eventTime ffds
             traceIO $ "converted events: " <> show events
             forM_ events $ \changeEvent -> do
               traceIO $ "actPred returned True for event " <> show changeEvent
@@ -141,10 +141,10 @@ data KQueueError =
 
 instance Exception KQueueError
 
-convertToEvents :: FdPath -> KEvent -> UTCTime -> [FdPath] -> IO [Event]
-convertToEvents (FdPath rootPath rootFd) kev@KEvent {..} eventTime fds
+convertToEvents :: Bool -> FdPath -> KEvent -> UTCTime -> [FdPath] -> IO [Event]
+convertToEvents recurse (FdPath rootPath rootFd) kev@KEvent {..} eventTime fds
   -- sub dir removed or added
-  | NoteWrite `elem` fflags && NoteLink `elem` fflags = do
+  | NoteWrite `elem` fflags && NoteLink `elem` fflags && (recurse || (fromIntegral rootFd) == ident) = do
       dirs <- findDirs False rootPath
       let newDirs = dirs L.\\ fmap fdPath fds
       let oldDirs = fmap fdPath fds L.\\ dirs
