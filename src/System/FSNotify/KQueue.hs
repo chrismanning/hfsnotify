@@ -11,7 +11,6 @@ module System.FSNotify.KQueue (
 ) where
 
 import Control.Concurrent
-import Control.Concurrent.MVar
 import Control.Exception.Safe
 import Control.Monad
 import Data.Functor
@@ -75,7 +74,9 @@ instance FileListener KQueueListener () where
     traceShowM eventsToMonitor
     _ <- kevent kq (fmap (setFlag EvAdd . setFlag EvOneshot) eventsToMonitor) 0 Nothing
     traceIO "events added to kqueue"
-    listenerThreadId <- forkIO $ forever $ do
+    sem <- newQSem 0
+    listenerThreadId <- forkIO $ do
+      waitQSem sem; forever $ do
       M.lookup dir <$> readMVar ws >>= \case
         Nothing -> do
           traceIO "watcher no longer exists but watch thread still running; killing self"
@@ -135,6 +136,7 @@ instance FileListener KQueueListener () where
     let watcher = DirWatcher kq listenerThreadId (FdPath dir dfd) ffds
     modifyMVar_ ws $ \ws -> do
       pure $ M.insert dir watcher ws
+    signalQSem sem
     pure $ killWatcher watcher
   listenRecursive _config (KQueueListener wt) path actPred callback = error "unimplemented"
   usesPolling _ = False
