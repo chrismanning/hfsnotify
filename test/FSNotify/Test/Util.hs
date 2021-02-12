@@ -56,6 +56,13 @@ isFreeBSD = True
 isFreeBSD = False
 #endif
 
+isLinux :: Bool
+#if linux_HOST_OS
+isLinux = True
+#else
+isLinux = False
+#endif
+
 nativeMgrSupported :: IO Bool
 nativeMgrSupported = do
   mgr <- startManager

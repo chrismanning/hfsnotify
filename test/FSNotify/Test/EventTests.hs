@@ -98,7 +98,7 @@ eventTests threadingMode = describe "Tests" $
                      [Modified {..}] | eventPath `equalFilePath` f && eventIsDirectory == IsFile -> return ()
                      _ -> expectationFailure $ "Got wrong events: " <> show events
 
-          when (isFreeBSD && not poll && (recursive || not nested)) $ it "renames directory" $ \(_watchedDir, f, getEvents, clearEvents) -> do
+          when ((isFreeBSD || isLinux) && not poll && (recursive || not nested)) $ it "renames directory" $ \(_watchedDir, f, getEvents, clearEvents) -> do
             createDirectory f >> clearEvents
             renameDirectory f (init f)
 
@@ -113,7 +113,7 @@ eventTests threadingMode = describe "Tests" $
                 return ()
               events -> expectationFailure $ "Got wrong events: " <> show events
 
-          when (isFreeBSD && not poll && (recursive || not nested)) $ it "renames file" $ \(_watchedDir, f, getEvents, clearEvents) -> do
+          when ((isFreeBSD || isLinux) && not poll && (recursive || not nested)) $ it "renames file" $ \(_watchedDir, f, getEvents, clearEvents) -> do
             writeFile f "" >> clearEvents
             renameFile f (init f)
 
@@ -128,7 +128,7 @@ eventTests threadingMode = describe "Tests" $
                 return ()
               events -> expectationFailure $ "Got wrong events: " <> show events
 
-          when (isFreeBSD && not poll && (recursive || not nested)) $ it "renames directory outside watched dir" $ \(_watchedDir, f, getEvents, clearEvents) -> do
+          when ((isFreeBSD || isLinux) && not poll && (recursive || not nested)) $ it "renames directory outside watched dir" $ \(_watchedDir, f, getEvents, clearEvents) -> do
             withRandomTempDirectory $ \tmpDir -> do
               clearEvents
               createDirectory f >> clearEvents
@@ -138,7 +138,7 @@ eventTests threadingMode = describe "Tests" $
                 [Removed {eventPath=oldPath}] | oldPath == f -> return ()
                 events -> expectationFailure $ "Got wrong events: " <> show events
 
-          when (isFreeBSD && not poll && (recursive || not nested)) $ it "renames file outside watched dir" $ \(_watchedDir, f, getEvents, clearEvents) -> do
+          when ((isFreeBSD || isLinux) && not poll && (recursive || not nested)) $ it "renames file outside watched dir" $ \(_watchedDir, f, getEvents, clearEvents) -> do
             withRandomTempDirectory $ \tmpDir -> do
               writeFile f "" >> clearEvents
               renameFile f (tmpDir </> "testfile")
