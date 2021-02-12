@@ -8,7 +8,7 @@
 module System.FSNotify.KQueue
   ( NativeManager,
     KQueueListener (),
-    KQueueError(..),
+    KQueueError (..),
   )
 where
 
@@ -167,7 +167,24 @@ convertToEvents recursive (FdPath rootPath rootFd) kev@KEvent {..} eventTime fds
       then mkEvent WatchedDirectoryRemoved
       else mkEvent Removed
   | NoteAttrib `elem` fflags = mkEvent ModifiedAttributes
-  | NoteRename `elem` fflags = mkEvent Removed
+  | NoteRename `elem` fflags = do
+    let fd' = Fd (fromIntegral ident)
+    stat <- getFdStatus fd'
+    let isFile = isRegularFile stat
+    let eventIsDirectory = if isFile then IsFile else IsDirectory
+    case filter ((== fd') . fd) fds of
+      [] -> pure []
+      ((FdPath oldPath fd') : _) -> do
+        files <- findFilesAndDirs recursive rootPath
+        let newFiles = files L.\\ fmap fdPath fds
+        added <- forM newFiles $ \newPath -> do
+          newFd <- openFd newPath ReadOnly Nothing defaultFileFlags
+          sameFile <- isSameFile fd' newFd
+          closeFd newFd
+          if sameFile
+            then pure $ Just $ Added newPath eventTime eventIsDirectory
+            else pure Nothing
+        pure $ [Removed oldPath eventTime eventIsDirectory] <> catMaybes added
   | otherwise = pure []
   where
     getEventPath :: IO (FilePath, EventIsDirectory)
@@ -208,18 +225,24 @@ convertToEvents recursive (FdPath rootPath rootFd) kev@KEvent {..} eventTime fds
 
 getPath :: KEvent -> [FdPath] -> IO (Maybe (FilePath, EventIsDirectory))
 getPath KEvent {..} fds = do
-  eventIsDirectory <- fdIsDirectory (Fd (fromIntegral ident))
+  eventIsDirectory <- fdEventIsDirectory (Fd (fromIntegral ident))
   case filter (\(FdPath _ (Fd fd)) -> fromIntegral fd == ident) fds of
     (FdPath path _ : _) -> do
       traceIO $ "eventPath: " <> path
       pure $ Just (path, eventIsDirectory)
     _ -> pure Nothing
 
-fdIsDirectory :: Fd -> IO EventIsDirectory
-fdIsDirectory fd =
+fdEventIsDirectory :: Fd -> IO EventIsDirectory
+fdEventIsDirectory fd =
   getFdStatus fd <&> isRegularFile >>= \case
     True -> pure IsFile
     False -> pure IsDirectory
+
+isSameFile :: Fd -> Fd -> IO Bool
+isSameFile a b = do
+  statA <- getFdStatus a
+  statB <- getFdStatus b
+  pure $ deviceID statA == deviceID statB && fileID statA == fileID statB
 
 setFlag :: Flag -> KEvent -> KEvent
 setFlag flag ev = ev {flags = flag : flags ev}
