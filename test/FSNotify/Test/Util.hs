@@ -49,6 +49,13 @@ isWin = True
 isWin = False
 #endif
 
+isFreeBSD :: Bool
+#if freebsd_HOST_OS
+isFreeBSD = True
+#else
+isFreeBSD = False
+#endif
+
 nativeMgrSupported :: IO Bool
 nativeMgrSupported = do
   mgr <- startManager

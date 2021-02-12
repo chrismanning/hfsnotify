@@ -97,3 +97,19 @@ eventTests threadingMode = describe "Tests" $
                  | otherwise -> case events of
                      [Modified {..}] | eventPath `equalFilePath` f && eventIsDirectory == IsFile -> return ()
                      _ -> expectationFailure $ "Got wrong events: " <> show events
+
+          when isFreeBSD $ it "renames directory" $ \(_watchedDir, f, getEvents, clearEvents) -> do
+            createDirectory f >> clearEvents
+            renameDirectory f (init f)
+
+            pauseAndRetryOnExpectationFailure 3 $ getEvents >>= \case
+              [Removed {eventPath=oldPath}, Added {eventPath=newPath}] | oldPath == f && newPath == init f -> return ()
+              events -> expectationFailure $ "Got wrong events: " <> show events
+
+          when isFreeBSD $ it "renames file" $ \(_watchedDir, f, getEvents, clearEvents) -> do
+            writeFile f "" >> clearEvents
+            renameFile f (init f)
+
+            pauseAndRetryOnExpectationFailure 3 $ getEvents >>= \case
+              [Removed {eventPath=oldPath}, Added {eventPath=newPath}] | oldPath == f && newPath == init f -> return ()
+              events -> expectationFailure $ "Got wrong events: " <> show events
