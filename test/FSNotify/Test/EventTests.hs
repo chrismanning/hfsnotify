@@ -12,6 +12,7 @@ import System.Directory
 import System.FSNotify
 import System.FilePath
 import System.IO
+import System.IO.Temp
 import Test.Hspec
 
 
@@ -113,3 +114,22 @@ eventTests threadingMode = describe "Tests" $
             pauseAndRetryOnExpectationFailure 3 $ getEvents >>= \case
               [Removed {eventPath=oldPath}, Added {eventPath=newPath}] | oldPath == f && newPath == init f -> return ()
               events -> expectationFailure $ "Got wrong events: " <> show events
+
+          when isFreeBSD $ it "renames directory outside watched dir" $ \(_watchedDir, f, getEvents, clearEvents) -> do
+            withRandomTempDirectory $ \tmpDir -> do
+              clearEvents
+              createDirectory f >> clearEvents
+              renameDirectory f (tmpDir </> "newdir")
+
+              pauseAndRetryOnExpectationFailure 3 $ getEvents >>= \case
+                [Removed {eventPath=oldPath}, Added {eventPath=newPath}] | oldPath == f && newPath == (tmpDir </> "newdir") -> return ()
+                events -> expectationFailure $ "Got wrong events: " <> show events
+
+          when isFreeBSD $ it "renames file outside watched dir" $ \(_watchedDir, f, getEvents, clearEvents) -> do
+            withRandomTempDirectory $ \tmpDir -> do
+              writeFile f "" >> clearEvents
+              renameFile f (tmpDir </> "testfile")
+
+              pauseAndRetryOnExpectationFailure 3 $ getEvents >>= \case
+                [Removed {eventPath=oldPath}, Added {eventPath=newPath}] | oldPath == f && newPath == (tmpDir </> "testfile") -> return ()
+                events -> expectationFailure $ "Got wrong events: " <> show events
