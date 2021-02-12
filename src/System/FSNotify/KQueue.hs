@@ -55,7 +55,7 @@ instance Exception KQueueError
 startWatching :: Bool -> KQueueListener -> FilePath -> ActionPredicate -> EventCallback -> IO StopListening
 startWatching recursive (KQueueListener ws) dir' actPred callback = do
   dir <- canonicalizeDirPath dir'
-  files <- findFilesAndDirs False dir
+  files <- findFilesAndDirs recursive dir
   traceIO $ "files: " <> show files
   dfd <- openFd dir ReadOnly Nothing defaultFileFlags
   let dirEvent =
@@ -149,15 +149,18 @@ startWatching recursive (KQueueListener ws) dir' actPred callback = do
 convertToEvents :: Bool -> FdPath -> KEvent -> UTCTime -> [FdPath] -> IO [Event]
 convertToEvents recursive (FdPath rootPath rootFd) kev@KEvent {..} eventTime fds
   -- sub dir removed or added
-  | NoteWrite `elem` fflags && NoteLink `elem` fflags = do
-    dirs <- findDirs False rootPath
+  | NoteWrite `elem` fflags && NoteLink `elem` fflags && (recursive || rootFd == Fd (fromIntegral ident)) = do
+    (path, _) <- getEventPath
+    dirs <- findDirs False path
+    traceIO $ "dirs: " <> show dirs
     let newDirs = dirs L.\\ fmap fdPath fds
     traceIO $ "newDirs: " <> show newDirs
-    let oldDirs = fmap fdPath fds L.\\ dirs
+    let oldDirs = filter (/= path) $ fmap fdPath fds L.\\ dirs
     traceIO $ "oldDirs: " <> show oldDirs
     let removed = oldDirs <&> \oldDir -> Removed oldDir eventTime IsDirectory
     let added = newDirs <&> \newDir -> Added newDir eventTime IsDirectory
     pure (removed <> added)
+  | NoteWrite `elem` fflags && NoteLink `elem` fflags = pure []
   | NoteWrite `elem` fflags = handleWriteEvent
   | NoteDelete `elem` fflags =
     if (fromIntegral rootFd) == ident
