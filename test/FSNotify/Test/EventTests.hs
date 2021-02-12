@@ -103,7 +103,14 @@ eventTests threadingMode = describe "Tests" $
             renameDirectory f (init f)
 
             pauseAndRetryOnExpectationFailure 3 $ getEvents >>= \case
-              [Removed {eventPath=oldPath}, Added {eventPath=newPath}] | oldPath == f && newPath == init f -> return ()
+              [Removed {eventPath=oldPath}, Added {eventPath=newPath}] -> do
+                oldPath `shouldBe` f
+                newPath `shouldBe` init f
+                return ()
+              [Added {eventPath=newPath}, Removed {eventPath=oldPath}] -> do
+                oldPath `shouldBe` f
+                newPath `shouldBe` init f
+                return ()
               events -> expectationFailure $ "Got wrong events: " <> show events
 
           when isFreeBSD $ it "renames file" $ \(_watchedDir, f, getEvents, clearEvents) -> do
@@ -111,7 +118,14 @@ eventTests threadingMode = describe "Tests" $
             renameFile f (init f)
 
             pauseAndRetryOnExpectationFailure 3 $ getEvents >>= \case
-              [Removed {eventPath=oldPath}, Added {eventPath=newPath}] | oldPath == f && newPath == init f -> return ()
+              [Removed {eventPath=oldPath}, Added {eventPath=newPath}] -> do
+                oldPath `shouldBe` f
+                newPath `shouldBe` init f
+                return ()
+              [Added {eventPath=newPath}, Removed {eventPath=oldPath}] -> do
+                oldPath `shouldBe` f
+                newPath `shouldBe` init f
+                return ()
               events -> expectationFailure $ "Got wrong events: " <> show events
 
           when isFreeBSD $ it "renames directory outside watched dir" $ \(_watchedDir, f, getEvents, clearEvents) -> do
