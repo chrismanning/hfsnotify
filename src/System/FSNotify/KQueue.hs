@@ -48,6 +48,7 @@ instance FileListener KQueueListener () where
 data KQueueError
   = KEventError String
   | PathUnknown KEvent
+  | FdError IOException
   deriving (Show)
 
 instance Exception KQueueError
@@ -56,7 +57,7 @@ startWatching :: Bool -> KQueueListener -> FilePath -> ActionPredicate -> EventC
 startWatching recursive (KQueueListener ws) dir' actPred callback = do
   dir <- canonicalizeDirPath dir'
   files <- findFilesAndDirs recursive dir
-  dfd <- openFd dir ReadOnly Nothing defaultFileFlags
+  dfd <- handle (throwIO . FdError) $ openFd dir ReadOnly Nothing defaultFileFlags
   let dirEvent =
         KEvent
           { ident = fromIntegral dfd,
@@ -75,8 +76,10 @@ startWatching recursive (KQueueListener ws) dir' actPred callback = do
             data_ = 0,
             udata = nullPtr
           }
-  !ffds <- forM files $ \path ->
-    FdPath path <$> openFd path ReadOnly Nothing defaultFileFlags
+  !ffds <- fmap catMaybes (forM files $ \path ->
+    handle (\(e :: IOException) -> pure Nothing) (
+      fmap (Just . FdPath path) $ openFd path ReadOnly Nothing defaultFileFlags
+    ))
   let eventsToMonitor = dirEvent : fmap mkFileEvent ffds
   -- create new kqueue
   kq <- kqueue
@@ -102,7 +105,7 @@ startWatching recursive (KQueueListener ws) dir' actPred callback = do
                 Added {eventPath} ->
                   modifyMVar_ ws $ \ws -> do
                     case ws !? dir of
-                      Just (DirWatcher kq tid dfd ffds) -> do
+                      Just (DirWatcher kq tid dfd ffds) -> handle (\(e :: IOException) -> pure ws) $ do
                         ffd <- FdPath eventPath <$> openFd eventPath ReadOnly Nothing defaultFileFlags
                         let event = mkFileEvent ffd
                         _ <- kevent kq [setFlag EvAdd . setFlag EvOneshot $ event] 0 Nothing
@@ -159,7 +162,7 @@ convertToEvents recursive (FdPath rootPath rootFd) kev@KEvent {..} eventTime fds
       ((FdPath oldPath fd') : _) -> do
         files <- findFilesAndDirs recursive rootPath
         let newFiles = files L.\\ fmap fdPath fds
-        added <- forM newFiles $ \newPath -> do
+        added <- forM newFiles $ \newPath -> handle (\(e :: IOException) -> pure Nothing) $ do
           newFd <- openFd newPath ReadOnly Nothing defaultFileFlags
           sameFile <- isSameFile fd' newFd
           closeFd newFd
