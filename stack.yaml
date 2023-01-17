@@ -3,4 +3,8 @@ resolver: lts-16.17
 packages:
 - '.'
 
-extra-deps: []
+extra-deps:
+  - github: chrismanning/kqueue
+    commit: 742c7a29b5c5e43b330667f259b7ccea4503ba98
+
+allow-newer: true

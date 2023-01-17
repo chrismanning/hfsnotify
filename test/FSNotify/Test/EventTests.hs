@@ -97,3 +97,56 @@ eventTests threadingMode = describe "Tests" $
                  | otherwise -> case events of
                      [Modified {..}] | eventPath `equalFilePath` f && eventIsDirectory == IsFile -> return ()
                      _ -> expectationFailure $ "Got wrong events: " <> show events
+
+          when ((isFreeBSD || isLinux) && not poll && (recursive || not nested)) $ it "renames directory" $ \(_watchedDir, f, getEvents, clearEvents) -> do
+            createDirectory f
+            clearEvents
+            renameDirectory f (init f)
+
+            pauseAndRetryOnExpectationFailure 3 $ getEvents >>= \case
+              (Removed {eventPath=oldPath}: Added {eventPath=newPath}: _) -> do
+                oldPath `shouldBe` f
+                newPath `shouldBe` init f
+                return ()
+              (Added {eventPath=newPath}: Removed {eventPath=oldPath}: _) -> do
+                oldPath `shouldBe` f
+                newPath `shouldBe` init f
+                return ()
+              events -> expectationFailure $ "Got wrong events: " <> show events
+
+          when ((isFreeBSD || isLinux) && not poll && (recursive || not nested)) $ it "renames file" $ \(_watchedDir, f, getEvents, clearEvents) -> do
+            writeFile f ""
+            clearEvents
+            renameFile f (init f)
+
+            pauseAndRetryOnExpectationFailure 3 $ getEvents >>= \case
+              (Removed {eventPath=oldPath}: Added {eventPath=newPath}: _) -> do
+                oldPath `shouldBe` f
+                newPath `shouldBe` init f
+                return ()
+              (Added {eventPath=newPath}: Removed {eventPath=oldPath}: _) -> do
+                oldPath `shouldBe` f
+                newPath `shouldBe` init f
+                return ()
+              events -> expectationFailure $ "Got wrong events: " <> show events
+
+          when ((isFreeBSD || isLinux) && not poll && (recursive || not nested)) $ it "renames directory outside watched dir" $ \(_watchedDir, f, getEvents, clearEvents) -> do
+            withRandomTempDirectory $ \tmpDir -> do
+              createDirectory f
+              clearEvents
+              renameDirectory f (tmpDir </> "newdir")
+
+              pauseAndRetryOnExpectationFailure 3 $ getEvents >>= \case
+                [Removed {eventPath=oldPath}] | oldPath == f -> return ()
+                events -> expectationFailure $ "Got wrong events: " <> show events
+
+          when ((isFreeBSD || isLinux) && not poll && (recursive || not nested)) $ it "renames file outside watched dir" $ \(_watchedDir, f, getEvents, clearEvents) -> do
+            withRandomTempDirectory $ \tmpDir -> do
+              writeFile f ""
+              clearEvents
+              renameFile f (tmpDir </> "testfile")
+
+              pauseAndRetryOnExpectationFailure 3 $ getEvents >>= \case
+                [Removed {eventPath=oldPath}] | oldPath == f -> return ()
+                events -> expectationFailure $ "Got wrong events: " <> show events
+

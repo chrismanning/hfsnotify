@@ -3,7 +3,18 @@
 # For more information, please see the documentation at:
 #   https://docs.haskellstack.org/en/stable/lock_files
 
-packages: []
+packages:
+- completed:
+    name: kqueue
+    pantry-tree:
+      sha256: 3f133195fc3c884395b9b28a824bf781292a5192d21c0ec243b1cb419f8938d1
+      size: 725
+    sha256: 25d80217ecec7ff27e4493749ced1a52dae6c1daffa7bcf277f677dbba92a070
+    size: 7922
+    url: https://github.com/chrismanning/kqueue/archive/742c7a29b5c5e43b330667f259b7ccea4503ba98.tar.gz
+    version: '0.2'
+  original:
+    url: https://github.com/chrismanning/kqueue/archive/742c7a29b5c5e43b330667f259b7ccea4503ba98.tar.gz
 snapshots:
 - completed:
     size: 532386
