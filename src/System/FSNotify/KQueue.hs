@@ -24,6 +24,7 @@ import Data.Maybe
 import Data.Time.Clock
 import Data.Time.Clock.System
 import Foreign.Ptr
+import System.FilePath
 import System.FSNotify.Listener
 import System.FSNotify.Path
 import System.FSNotify.Types
@@ -56,7 +57,7 @@ instance Exception KQueueError
 startWatching :: Bool -> KQueueListener -> FilePath -> ActionPredicate -> EventCallback -> IO StopListening
 startWatching recursive (KQueueListener ws) dir' actPred callback = do
   dir <- canonicalizeDirPath dir'
-  files <- findFilesAndDirs recursive dir
+  files <- (<>) <$> findFiles recursive dir <*> findDirs recursive dir
   dfd <- handle (throwIO . FdError) $ openFd dir ReadOnly Nothing defaultFileFlags
   let dirEvent =
         KEvent
@@ -77,7 +78,7 @@ startWatching recursive (KQueueListener ws) dir' actPred callback = do
             udata = nullPtr
           }
   !ffds <- fmap catMaybes (forM files $ \path ->
-    handle (\(e :: IOException) -> pure Nothing) (
+    handle (\(_ :: IOException) -> pure Nothing) (
       fmap (Just . FdPath path) $ openFd path ReadOnly Nothing defaultFileFlags
     ))
   let eventsToMonitor = dirEvent : fmap mkFileEvent ffds
@@ -98,17 +99,17 @@ startWatching recursive (KQueueListener ws) dir' actPred callback = do
           changes <- kevent kq [] 1 (Just 1)
           forM_ changes $ \change -> do
             eventTime <- systemToUTCTime <$> getSystemTime
-            events <- filter actPred <$> convertToEvents recursive dfd change eventTime ffds
+            events <- convertToEvents recursive dfd change eventTime ffds
             forM_ events $ \changeEvent -> do
-              callback changeEvent
+              when (actPred changeEvent) $ callback changeEvent
               case changeEvent of
                 Added {eventPath} ->
                   modifyMVar_ ws $ \ws -> do
                     case ws !? dir of
-                      Just (DirWatcher kq tid dfd ffds) -> handle (\(e :: IOException) -> pure ws) $ do
+                      Just (DirWatcher kq tid dfd ffds) -> handle (\(_ :: IOException) -> pure ws) $ do
                         ffd <- FdPath eventPath <$> openFd eventPath ReadOnly Nothing defaultFileFlags
                         let event = mkFileEvent ffd
-                        _ <- kevent kq [setFlag EvAdd . setFlag EvOneshot $ event] 0 Nothing
+                        _ <- kevent kq [setFlag EvAdd . setFlag EvClear $ event] 0 Nothing
                         let newWatcher = DirWatcher kq tid dfd (ffd : ffds)
                         pure (M.insert dir newWatcher ws)
                       Nothing -> pure ws
@@ -126,7 +127,7 @@ startWatching recursive (KQueueListener ws) dir' actPred callback = do
                       Just w -> killWatcher w >> pure (M.delete eventPath ws)
                       Nothing -> pure ws
                 _any -> do
-                  _ <- kevent kq [setFlag EvAdd . setFlag EvOneshot $ change] 0 Nothing
+                  _ <- kevent kq [setFlag EvAdd . setFlag EvClear $ change] 0 Nothing
                   pure ()
   let watcher = DirWatcher kq listenerThreadId (FdPath dir dfd) ffds
   modifyMVar_ ws $ \ws -> do
@@ -139,9 +140,11 @@ convertToEvents recursive (FdPath rootPath rootFd) kev@KEvent {..} eventTime fds
   -- sub dir removed or added
   | NoteWrite `elem` fflags && NoteLink `elem` fflags && (recursive || rootFd == Fd (fromIntegral ident)) = do
     (path, _) <- getEventPath
+    let levelFds = filter (\fdp -> takeDirectory (fdPath fdp) == path) fds
+    watchedDirs <- fmap fdPath <$> filterM (\fdp -> (== IsDirectory) <$> fdEventIsDirectory (fd fdp)) levelFds
     dirs <- findDirs False path
-    let newDirs = dirs L.\\ fmap fdPath fds
-    let oldDirs = filter (/= path) $ fmap fdPath fds L.\\ dirs
+    let newDirs = dirs L.\\ watchedDirs
+    let oldDirs = filter (/= path) $ watchedDirs L.\\ dirs
     let removed = oldDirs <&> \oldDir -> Removed oldDir eventTime IsDirectory
     let added = newDirs <&> \newDir -> Added newDir eventTime IsDirectory
     pure (removed <> added)
@@ -162,7 +165,7 @@ convertToEvents recursive (FdPath rootPath rootFd) kev@KEvent {..} eventTime fds
       ((FdPath oldPath fd') : _) -> do
         files <- findFilesAndDirs recursive rootPath
         let newFiles = files L.\\ fmap fdPath fds
-        added <- forM newFiles $ \newPath -> handle (\(e :: IOException) -> pure Nothing) $ do
+        added <- forM newFiles $ \newPath -> handle (\(_ :: IOException) -> pure Nothing) $ do
           newFd <- openFd newPath ReadOnly Nothing defaultFileFlags
           sameFile <- isSameFile fd' newFd
           closeFd newFd
@@ -186,8 +189,8 @@ convertToEvents recursive (FdPath rootPath rootFd) kev@KEvent {..} eventTime fds
       isDir <- isDirectory <$> getFdStatus (Fd (fromIntegral ident))
       if (fromIntegral rootFd) == ident
         then do
-          filesAndDirs <- findFilesAndDirs False rootPath
-          let newFiles = filesAndDirs L.\\ fmap fdPath fds
+          files <- findFiles False rootPath
+          let newFiles = files L.\\ fmap fdPath fds
           forM newFiles $ \newFile -> do
             eventIsDirectory <-
               isRegularFile <$> getFileStatus newFile >>= \case
