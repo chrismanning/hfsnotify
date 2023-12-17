@@ -58,7 +58,7 @@ startWatching :: Bool -> KQueueListener -> FilePath -> ActionPredicate -> EventC
 startWatching recursive (KQueueListener ws) dir' actPred callback = do
   dir <- canonicalizeDirPath dir'
   files <- (<>) <$> findFiles recursive dir <*> findDirs recursive dir
-  dfd <- handle (throwIO . FdError) $ openFd dir ReadOnly Nothing defaultFileFlags
+  dfd <- handle (throwIO . FdError) $ openFd dir ReadOnly defaultFileFlags
   let dirEvent =
         KEvent
           { ident = fromIntegral dfd,
@@ -79,7 +79,7 @@ startWatching recursive (KQueueListener ws) dir' actPred callback = do
           }
   !ffds <- fmap catMaybes (forM files $ \path ->
     handle (\(_ :: IOException) -> pure Nothing) (
-      fmap (Just . FdPath path) $ openFd path ReadOnly Nothing defaultFileFlags
+      fmap (Just . FdPath path) $ openFd path ReadOnly defaultFileFlags
     ))
   let eventsToMonitor = dirEvent : fmap mkFileEvent ffds
   -- create new kqueue
@@ -107,7 +107,7 @@ startWatching recursive (KQueueListener ws) dir' actPred callback = do
                   modifyMVar_ ws $ \ws -> do
                     case ws !? dir of
                       Just (DirWatcher kq tid dfd ffds) -> handle (\(_ :: IOException) -> pure ws) $ do
-                        ffd <- FdPath eventPath <$> openFd eventPath ReadOnly Nothing defaultFileFlags
+                        ffd <- FdPath eventPath <$> openFd eventPath ReadOnly defaultFileFlags
                         let event = mkFileEvent ffd
                         _ <- kevent kq [setFlag EvAdd . setFlag EvClear $ event] 0 Nothing
                         let newWatcher = DirWatcher kq tid dfd (ffd : ffds)
@@ -166,7 +166,7 @@ convertToEvents recursive (FdPath rootPath rootFd) kev@KEvent {..} eventTime fds
         files <- findFilesAndDirs recursive rootPath
         let newFiles = files L.\\ fmap fdPath fds
         added <- forM newFiles $ \newPath -> handle (\(_ :: IOException) -> pure Nothing) $ do
-          newFd <- openFd newPath ReadOnly Nothing defaultFileFlags
+          newFd <- openFd newPath ReadOnly defaultFileFlags
           sameFile <- isSameFile fd' newFd
           closeFd newFd
           if sameFile
