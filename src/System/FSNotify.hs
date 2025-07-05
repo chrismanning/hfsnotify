@@ -2,9 +2,16 @@
 -- Copyright (c) 2012 Mark Dittmer - http://www.markdittmer.org
 -- Developed for a Google Summer of Code project - http://gsoc2012.markdittmer.org
 --
-{-# LANGUAGE CPP, ScopedTypeVariables, ExistentialQuantification, RankNTypes, LambdaCase, OverloadedStrings, MultiWayIf, FlexibleContexts, RecordWildCards, NamedFieldPuns #-}
+{-# LANGUAGE CPP #-}
+{-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE RecordWildCards #-}
 
--- | NOTE: This library does not currently report changes made to directories,
+-- | This library does not currently report changes made to directories,
 -- only files within watched directories.
 --
 -- Minimal example:
@@ -27,41 +34,40 @@
 -- >    -- sleep forever (until interrupted)
 -- >    forever $ threadDelay 1000000
 
-module System.FSNotify
-       (
+module System.FSNotify (
+  -- * Events
+    Event(..)
+  , EventIsDirectory(..)
+  , EventChannel
+  , Action
+  , ActionPredicate
 
-       -- * Events
-         Event(..)
-       , EventIsDirectory(..)
-       , EventChannel
-       , Action
-       , ActionPredicate
+  -- * Starting/Stopping
+  , WatchManager
+  , withManager
+  , startManager
+  , stopManager
 
-       -- * Starting/Stopping
-       , WatchManager
-       , withManager
-       , startManager
-       , stopManager
-       , defaultConfig
-       , defaultPollingConfig
+  -- * Configuration
+  , defaultConfig
+  , WatchConfig
+  , confWatchMode
+  , confThreadingMode
+  , confOnHandlerException
+  , WatchMode(..)
+  , ThreadingMode(..)
 
-       , confWatchMode
-       , confThreadingMode
-       , confOnHandlerException
+  -- * Lower level
+  , withManagerConf
+  , startManagerConf
+  , StopListening
 
-       , WatchMode(..)
-       , ThreadingMode(..)
-       , withManagerConf
-       , startManagerConf
-       , StopListening
-       , isPollingManager
-
-       -- * Watching
-       , watchDir
-       , watchDirChan
-       , watchTree
-       , watchTreeChan
-       ) where
+  -- * Watching
+  , watchDir
+  , watchDirChan
+  , watchTree
+  , watchTreeChan
+  ) where
 
 import Prelude hiding (FilePath)
 
@@ -70,7 +76,7 @@ import Control.Concurrent.Async
 import Control.Exception.Safe as E
 import Control.Monad
 import Control.Monad.IO.Class
-import Data.Text as T
+import qualified Data.Text as T
 import System.FSNotify.Polling
 import System.FSNotify.Types
 import System.FilePath
@@ -83,51 +89,42 @@ import Data.Monoid
 
 #ifdef OS_Linux
 import System.FSNotify.Linux
-#else
-#  ifdef OS_Win32
-import System.FSNotify.Win32
-#  else
-#    ifdef OS_Mac
-import System.FSNotify.OSX
-#    else
-#      ifdef OS_FreeBSD
-import System.FSNotify.KQueue
-#      else
-type NativeManager = PollManager
-#      endif
-#    endif
-#  endif
 #endif
+
+#ifdef OS_Win32
+import System.FSNotify.Win32
+#endif
+
+#ifdef OS_Mac
+import System.FSNotify.OSX
+#endif
+
+#ifdef OS_FreeBSD
+import System.FSNotify.KQueue
+#endif
+
 
 -- | Watch manager. You need one in order to create watching jobs.
 data WatchManager = forall manager argType. FileListener manager argType =>
-  WatchManager { watchManagerConfig :: WatchConfig
-               , watchManagerManager :: manager
-               , watchManagerCleanupVar :: (MVar (Maybe (IO ()))) -- cleanup action, or Nothing if the manager is stopped
-               , watchManagerGlobalChan :: Maybe (EventAndActionChannel, Async ())
-               }
+  WatchManager {
+    watchManagerConfig :: WatchConfig
+    , watchManagerManager :: manager
+    , watchManagerGlobalChan :: Maybe (EventAndActionChannel, Async ())
+    }
 
 -- | Default configuration
 --
--- * Uses OS watch mode and single thread.
+-- * Uses OS watch mode (if possible) and single thread.
 defaultConfig :: WatchConfig
-defaultConfig =
-  WatchConfig
-    { confWatchMode = WatchModeOS
-    , confThreadingMode = SingleThread
-    , confOnHandlerException = defaultOnHandlerException
-    }
-
--- | Default polling configuration
---
--- * Uses polling interval of 1 second and single thread.
-defaultPollingConfig :: WatchConfig
-defaultPollingConfig =
-  WatchConfig
-    { confWatchMode = WatchModePoll (10^(6 :: Int)) -- 1 second
-    , confThreadingMode = SingleThread
-    , confOnHandlerException = defaultOnHandlerException
-    }
+defaultConfig = WatchConfig {
+#ifndef HAVE_NATIVE_WATCHER
+  confWatchMode = WatchModePoll 500000
+#else
+  confWatchMode = WatchModeOS
+#endif
+  , confThreadingMode = SingleThread
+  , confOnHandlerException = defaultOnHandlerException
+  }
 
 defaultOnHandlerException :: SomeException -> IO ()
 defaultOnHandlerException e = putStrLn ("fsnotify: handler threw exception: " <> show e)
@@ -151,19 +148,17 @@ startManager = startManagerConf defaultConfig
 -- watching for files and free resources.
 stopManager :: WatchManager -> IO ()
 stopManager (WatchManager {..}) = do
-  mbCleanup <- swapMVar watchManagerCleanupVar Nothing
-  maybe (return ()) liftIO mbCleanup
   liftIO $ killSession watchManagerManager
   case watchManagerGlobalChan of
     Nothing -> return ()
     Just (_, t) -> cancel t
 
--- | Like 'withManager', but configurable
+-- | Like 'withManager', but configurable.
 withManagerConf :: WatchConfig -> (WatchManager -> IO a) -> IO a
 withManagerConf conf = bracket (startManagerConf conf) stopManager
 
--- | Like 'startManager', but configurable
-startManagerConf :: WatchConfig -> IO (WatchManager)
+-- | Like 'startManager', but configurable.
+startManagerConf :: WatchConfig -> IO WatchManager
 startManagerConf conf = do
 # ifdef OS_Win32
   -- See https://github.com/haskell-fswatch/hfsnotify/issues/50
@@ -171,13 +166,17 @@ startManagerConf conf = do
 # endif
 
   case confWatchMode conf of
-    WatchModePoll interval -> WatchManager conf <$> liftIO (createPollManager interval) <*> cleanupVar <*> globalWatchChan
+    WatchModePoll interval -> WatchManager conf <$> liftIO (createPollManager interval) <*> globalWatchChan
+#ifdef HAVE_NATIVE_WATCHER
     WatchModeOS -> liftIO (initSession ()) >>= createManager
+#endif
 
   where
-    createManager :: Either Text NativeManager -> IO (WatchManager)
-    createManager (Right nativeManager) = WatchManager conf nativeManager <$> cleanupVar <*> globalWatchChan
+#ifdef HAVE_NATIVE_WATCHER
+    createManager :: Either T.Text NativeManager -> IO WatchManager
+    createManager (Right nativeManager) = WatchManager conf nativeManager <$> globalWatchChan
     createManager (Left err) = throwIO $ userError $ T.unpack $ "Error: couldn't start native file manager: " <> err
+#endif
 
     globalWatchChan = case confThreadingMode conf of
       SingleThread -> do
@@ -189,12 +188,6 @@ startManagerConf conf = do
             Right () -> return ()
         return $ Just (globalChan, globalReaderThread)
       _ -> return Nothing
-
-    cleanupVar = newMVar (Just (return ()))
-
--- | Does this manager use polling?
-isPollingManager :: WatchManager -> Bool
-isPollingManager (WatchManager {..}) = usesPolling watchManagerManager
 
 -- | Watch the immediate contents of a directory by streaming events to a Chan.
 -- Watching the immediate contents of a directory will only report events
@@ -228,25 +221,10 @@ watchTree wm@(WatchManager {watchManagerConfig}) fp actionPredicate action = thr
 
 threadChan :: (forall a b. ListenFn a b) -> WatchManager -> FilePath -> ActionPredicate -> Action -> IO StopListening
 threadChan listenFn (WatchManager {watchManagerGlobalChan=(Just (globalChan, _)), ..}) path actPred action =
-  modifyMVar watchManagerCleanupVar $ \case
-    Nothing -> return (Nothing, return ()) -- we've been stopped. Throw an exception?
-    Just cleanup -> do
-      stopListener <- liftIO $ listenFn watchManagerConfig watchManagerManager path actPred (\event -> writeChan globalChan (event, action))
-      return (Just cleanup, stopListener)
-threadChan listenFn (WatchManager {watchManagerGlobalChan=Nothing, ..}) path actPred action =
-  modifyMVar watchManagerCleanupVar $ \case
-    Nothing -> return (Nothing, return ()) -- we've been stopped. Throw an exception?
-    Just cleanup -> do
-      chan <- newChan
-      let forkThreadPerEvent = case confThreadingMode watchManagerConfig of
-            SingleThread -> error "Should never happen"
-            ThreadPerWatch -> False
-            ThreadPerEvent -> True
-      readerThread <- async $ readEvents forkThreadPerEvent chan
-      stopListener <- liftIO $ listenFn watchManagerConfig watchManagerManager path actPred (writeChan chan)
-      return (Just (cleanup >> cancel readerThread), stopListener >> cancel readerThread)
-
-  where
-    readEvents :: Bool -> EventChannel -> IO ()
-    readEvents True chan = forever $ readChan chan >>= (async . action)
-    readEvents False chan = forever $ readChan chan >>= action
+  listenFn watchManagerConfig watchManagerManager path actPred (\event -> writeChan globalChan (event, action))
+threadChan listenFn (WatchManager {watchManagerGlobalChan=Nothing, ..}) path actPred action = do
+  let wrappedAction = case confThreadingMode watchManagerConfig of
+        SingleThread -> error "Should never happen"
+        ThreadPerWatch -> action
+        ThreadPerEvent -> void . async . action
+  listenFn watchManagerConfig watchManagerManager path actPred wrappedAction

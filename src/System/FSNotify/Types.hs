@@ -2,21 +2,23 @@
 -- Copyright (c) 2012 Mark Dittmer - http://www.markdittmer.org
 -- Developed for a Google Summer of Code project - http://gsoc2012.markdittmer.org
 --
+{-# LANGUAGE CPP #-}
 
-module System.FSNotify.Types
-       ( act
-       , ActionPredicate
-       , Action
-       , WatchConfig(..)
-       , WatchMode(..)
-       , ThreadingMode(..)
-       , Event(..)
-       , EventIsDirectory(..)
-       , EventCallback
-       , EventChannel
-       , EventAndActionChannel
-       , IOEvent
-       ) where
+module System.FSNotify.Types (
+  act
+  , ActionPredicate
+  , Action
+  , DebounceFn
+  , WatchConfig(..)
+  , WatchMode(..)
+  , ThreadingMode(..)
+  , Event(..)
+  , EventIsDirectory(..)
+  , EventCallback
+  , EventChannel
+  , EventAndActionChannel
+  , IOEvent
+  ) where
 
 import Control.Concurrent.Chan
 import Control.Exception.Safe
@@ -37,9 +39,12 @@ data Event =
   | Modified { eventPath :: FilePath, eventTime :: UTCTime, eventIsDirectory :: EventIsDirectory }
   | ModifiedAttributes { eventPath :: FilePath, eventTime :: UTCTime, eventIsDirectory :: EventIsDirectory }
   | Removed { eventPath :: FilePath, eventTime :: UTCTime, eventIsDirectory :: EventIsDirectory }
+  -- | Note: Linux-only
   | WatchedDirectoryRemoved  { eventPath :: FilePath, eventTime :: UTCTime, eventIsDirectory :: EventIsDirectory }
+  -- | Note: Linux-only
+  | CloseWrite  { eventPath :: FilePath, eventTime :: UTCTime, eventIsDirectory :: EventIsDirectory }
+  -- | Note: Linux-only
   | Unknown  { eventPath :: FilePath, eventTime :: UTCTime, eventIsDirectory :: EventIsDirectory, eventString :: String }
-  -- ^ Note: currently only emitted on Linux
   deriving (Eq, Show)
 
 type EventChannel = Chan Event
@@ -50,11 +55,17 @@ type EventAndActionChannel = Chan (Event, Action)
 
 -- | Method of watching for changes.
 data WatchMode =
-  WatchModeOS
-  -- ^ Use OS-specific mechanisms to be notified of changes (inotify on Linux, FSEvents on OSX, etc.)
-  | WatchModePoll { watchModePollInterval :: Int }
+  WatchModePoll {
+    watchModePollInterval :: Int
+    -- ^ Polling interval in microseconds.
+  }
   -- ^ Detect changes by polling the filesystem. Less efficient and may miss fast changes. Not recommended
-  -- unless you're experiencing problems with 'WatchModeOS'.
+  -- unless you're experiencing problems with 'WatchModeOS' (or 'WatchModeOS' is not supported on your platform).
+#ifdef HAVE_NATIVE_WATCHER
+  | WatchModeOS
+  -- ^ Use OS-specific mechanisms to be notified of changes (inotify on Linux, FSEvents on OSX, etc.).
+  -- Not currently available on e.g. *BSD and Wasm/WASI.
+#endif
 
 data ThreadingMode =
   SingleThread
@@ -65,14 +76,14 @@ data ThreadingMode =
   | ThreadPerEvent
   -- ^ Launch a separate thread for every event handler.
 
--- | Watch configuration
+-- | Watch configuration.
 data WatchConfig = WatchConfig
   { confWatchMode :: WatchMode
-    -- ^ Watch mode to use
+    -- ^ Watch mode to use.
   , confThreadingMode :: ThreadingMode
-    -- ^ Threading mode to use
+    -- ^ Threading mode to use.
   , confOnHandlerException :: SomeException -> IO ()
-    -- ^ Called when a handler throws an exception
+    -- ^ Called when a handler throws an exception.
   }
 
 type IOEvent = IORef Event
@@ -82,6 +93,9 @@ type ActionPredicate = Event -> Bool
 
 -- | An action to be performed in response to an event.
 type Action = Event -> IO ()
+
+-- | A general debouncing function.
+type DebounceFn = Action -> IO Action
 
 -- | Predicate to always act.
 act :: ActionPredicate

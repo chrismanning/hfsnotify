@@ -1,12 +1,13 @@
-{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE FlexibleInstances #-}
 --
 -- Copyright (c) 2012 Mark Dittmer - http://www.markdittmer.org
 -- Developed for a Google Summer of Code project - http://gsoc2012.markdittmer.org
 --
 
-module System.FSNotify.Polling
-  ( createPollManager
+module System.FSNotify.Polling (
+  createPollManager
   , PollManager(..)
   , FileListener(..)
   ) where
@@ -28,6 +29,7 @@ import System.FilePath
 import System.PosixCompat.Files
 import System.PosixCompat.Types
 
+
 data EventType = AddedEvent
                | ModifiedEvent
                | RemovedEvent
@@ -35,8 +37,10 @@ data EventType = AddedEvent
 newtype WatchKey = WatchKey ThreadId deriving (Eq, Ord)
 data WatchData = WatchData FilePath EventCallback
 type WatchMap = Map WatchKey WatchData
-data PollManager = PollManager { pollManagerWatchMap :: MVar WatchMap
-                               , pollManagerInterval :: Int }
+data PollManager = PollManager {
+  pollManagerWatchMap :: MVar WatchMap
+  , pollManagerInterval :: Int
+  }
 
 generateEvent :: UTCTime -> EventIsDirectory -> EventType -> FilePath -> Maybe Event
 generateEvent timestamp isDir AddedEvent filePath = Just (Added filePath timestamp isDir)
@@ -135,9 +139,6 @@ instance FileListener PollManager Int where
   listen = listen' False
 
   listenRecursive = listen' True
-
-  usesPolling = const True
-
 
 getModificationTime :: FilePath -> IO UTCTime
 getModificationTime p = fromEpoch . modificationTime <$> getFileStatus p

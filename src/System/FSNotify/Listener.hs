@@ -1,6 +1,7 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE Rank2Types #-}
+{-# LANGUAGE AllowAmbiguousTypes #-}
 --
 -- Copyright (c) 2012 Mark Dittmer - http://www.markdittmer.org
 -- Developed for a Google Summer of Code project - http://gsoc2012.markdittmer.org
@@ -17,7 +18,7 @@ import Prelude hiding (FilePath)
 import System.FSNotify.Types
 import System.FilePath
 
--- | An action that cancels a watching/listening job
+-- | An action that cancels a watching/listening job.
 type StopListening = IO ()
 
 type ListenFn sessionType argType = FileListener sessionType argType => WatchConfig -> sessionType -> FilePath -> ActionPredicate -> EventCallback -> IO StopListening
@@ -45,6 +46,3 @@ class FileListener sessionType argType | sessionType -> argType where
   -- report events associated with files within the specified directory and its
   -- subdirectories.
   listenRecursive :: ListenFn sessionType argType
-
-  -- | Does this manager use polling?
-  usesPolling :: sessionType -> Bool

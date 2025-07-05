@@ -3,12 +3,14 @@
 -- Developed for a Google Summer of Code project - http://gsoc2012.markdittmer.org
 --
 
-{-# LANGUAGE MultiWayIf, OverloadedStrings, MultiParamTypeClasses #-}
+{-# LANGUAGE MultiWayIf #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 
-module System.FSNotify.OSX
-       ( FileListener(..)
-       , NativeManager
-       ) where
+module System.FSNotify.OSX (
+  FileListener(..)
+  , NativeManager
+  ) where
 
 import Control.Concurrent
 import Control.Monad
@@ -103,13 +105,15 @@ isDirectlyInside dirPath event = isRelevantFileEvent || isRelevantDirEvent
     isRelevantFileEvent = (eventIsDirectory event == IsFile) && (takeDirectory dirPath == (takeDirectory $ eventPath event))
     isRelevantDirEvent = (eventIsDirectory event == IsDirectory) && (takeDirectory dirPath == (takeDirectory $ takeDirectory $ eventPath event))
 
-listenFn :: (ActionPredicate -> EventCallback -> FilePath -> FSE.Event -> IO a)
-         -> WatchConfig
-         -> OSXManager
-         -> FilePath
-         -> ActionPredicate
-         -> EventCallback
-         -> IO StopListening
+listenFn :: (
+  ActionPredicate -> EventCallback -> FilePath -> FSE.Event -> IO a
+  )
+  -> WatchConfig
+  -> OSXManager
+  -> FilePath
+  -> ActionPredicate
+  -> EventCallback
+  -> IO StopListening
 listenFn handler conf (OSXManager mvarMap) path actPred callback = do
   path' <- canonicalizeDirPath path
   unique <- newUnique
@@ -134,5 +138,3 @@ instance FileListener OSXManager () where
 
   listen = listenFn $ handleFSEEvent False
   listenRecursive = listenFn $ handleFSEEvent True
-
-  usesPolling = const False

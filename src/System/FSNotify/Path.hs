@@ -2,16 +2,18 @@
 -- Copyright (c) 2012 Mark Dittmer - http://www.markdittmer.org
 -- Developed for a Google Summer of Code project - http://gsoc2012.markdittmer.org
 --
-{-# LANGUAGE MultiParamTypeClasses, TypeSynonymInstances, FlexibleInstances #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE CPP #-}
 
-module System.FSNotify.Path
-       ( findFiles
-       , findDirs
-       , findFilesAndDirs
-       , canonicalizeDirPath
-       , canonicalizePath
-       , hasThisExtension
-       ) where
+module System.FSNotify.Path (
+  findFiles
+  , findFilesAndDirs
+  , canonicalizeDirPath
+  , canonicalizePath
+  , hasThisExtension
+  ) where
 
 import Control.Monad
 import qualified Data.Text as T
@@ -24,7 +26,11 @@ getDirectoryContentsPath :: FilePath -> IO [FilePath]
 getDirectoryContentsPath path =
   ((map (path </>)) . filter (not . dots) <$> D.getDirectoryContents path) >>= filterM exists
   where
+#if MIN_VERSION_directory(1, 2, 7)
+    exists x = D.doesPathExist x
+#else
     exists x = (||) <$> D.doesFileExist x <*> D.doesDirectoryExist x
+#endif
     dots "."  = True
     dots ".." = True
     dots _    = False
@@ -44,25 +50,14 @@ findAllFiles path = do
   nestedFiles <- mapM findAllFiles dirs
   return (files ++ concat nestedFiles)
 
-findImmediateFiles, findImmediateDirs :: FilePath -> IO [FilePath]
+findImmediateFiles :: FilePath -> IO [FilePath]
 findImmediateFiles = fileDirContents >=> mapM D.canonicalizePath . fst
-findImmediateDirs  = fileDirContents >=> mapM D.canonicalizePath . snd
-
-findAllDirs :: FilePath -> IO [FilePath]
-findAllDirs path = do
-  dirs <- findImmediateDirs path
-  nestedDirs <- mapM findAllDirs dirs
-  return (dirs ++ concat nestedDirs)
 
 -- * Exported functions below this point
 
 findFiles :: Bool -> FilePath -> IO [FilePath]
 findFiles True path  = findAllFiles       =<< canonicalizeDirPath path
 findFiles False path = findImmediateFiles =<<  canonicalizeDirPath path
-
-findDirs :: Bool -> FilePath -> IO [FilePath]
-findDirs True path  = findAllDirs       =<< canonicalizeDirPath path
-findDirs False path = findImmediateDirs =<< canonicalizeDirPath path
 
 findFilesAndDirs :: Bool -> FilePath -> IO [FilePath]
 findFilesAndDirs False path = getDirectoryContentsPath =<< canonicalizeDirPath path
