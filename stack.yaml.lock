@@ -7,14 +7,14 @@ packages:
 - completed:
     name: kqueue
     pantry-tree:
-      sha256: 3f133195fc3c884395b9b28a824bf781292a5192d21c0ec243b1cb419f8938d1
+      sha256: c5880efd147c158dbd998ea509e24fa4bb8c6d7cfbbc4e4ba7120e5a3da43ef4
       size: 725
-    sha256: 25d80217ecec7ff27e4493749ced1a52dae6c1daffa7bcf277f677dbba92a070
-    size: 7922
-    url: https://github.com/chrismanning/kqueue/archive/742c7a29b5c5e43b330667f259b7ccea4503ba98.tar.gz
+    sha256: 7b6fca936de61e1f56c007e90f40aa5b6da007991a6ed36e10408b7531e8a3f9
+    size: 7940
+    url: https://github.com/chrismanning/kqueue/archive/fc8a186f2d7500d42405e71cf336b62b57caa328.tar.gz
     version: '0.2'
   original:
-    url: https://github.com/chrismanning/kqueue/archive/742c7a29b5c5e43b330667f259b7ccea4503ba98.tar.gz
+    url: https://github.com/chrismanning/kqueue/archive/fc8a186f2d7500d42405e71cf336b62b57caa328.tar.gz
 - completed:
     hackage: hinotify-0.4.2@sha256:dc4c45544e1920864882ee1b332d78960cdb9f7b706983f6eab3c9dabda4fa9e,2725
     pantry-tree:

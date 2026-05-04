@@ -10,7 +10,7 @@ nix:
 
 extra-deps:
 - github: chrismanning/kqueue
-  commit: 742c7a29b5c5e43b330667f259b7ccea4503ba98
+  commit: fc8a186f2d7500d42405e71cf336b62b57caa328
 - hinotify-0.4.2
 
 # Uncomment these to test with text-2.1.2, which exports "show" by default

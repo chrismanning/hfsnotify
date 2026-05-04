@@ -24,6 +24,7 @@ import Data.Maybe
 import Data.Time.Clock
 import Data.Time.Clock.System
 import Foreign.Ptr
+import qualified System.Directory as D
 import System.FilePath
 import System.FSNotify.Listener
 import System.FSNotify.Path
@@ -44,7 +45,6 @@ instance FileListener KQueueListener () where
       killAllWatchers ws = forM_ (snd <$> M.toList ws) killWatcher
   listen _config = startWatching False
   listenRecursive _config = startWatching True
-  usesPolling _ = False
 
 data KQueueError
   = KEventError String
@@ -57,7 +57,7 @@ instance Exception KQueueError
 startWatching :: Bool -> KQueueListener -> FilePath -> ActionPredicate -> EventCallback -> IO StopListening
 startWatching recursive (KQueueListener ws) dir' actPred callback = do
   dir <- canonicalizeDirPath dir'
-  files <- (<>) <$> findFiles recursive dir <*> findDirs recursive dir
+  files <- findFilesAndDirs recursive dir
   dfd <- handle (throwIO . FdError) $ openFd dir ReadOnly defaultFileFlags
   let dirEvent =
         KEvent
@@ -142,7 +142,7 @@ convertToEvents recursive (FdPath rootPath rootFd) kev@KEvent {..} eventTime fds
     (path, _) <- getEventPath
     let levelFds = filter (\fdp -> takeDirectory (fdPath fdp) == path) fds
     watchedDirs <- fmap fdPath <$> filterM (\fdp -> (== IsDirectory) <$> fdEventIsDirectory (fd fdp)) levelFds
-    dirs <- findDirs False path
+    dirs <- findFilesAndDirs False path >>= filterM D.doesDirectoryExist
     let newDirs = dirs L.\\ watchedDirs
     let oldDirs = filter (/= path) $ watchedDirs L.\\ dirs
     let removed = oldDirs <&> \oldDir -> Removed oldDir eventTime IsDirectory
