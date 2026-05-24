@@ -9,7 +9,8 @@ nix:
   - zlib
 
 extra-deps:
-- hinotify-0.4.2
+- github: chrismanning/hinotify
+  commit: 97d4b459bd446120a9c5659e051d82733ec8fd77
 
 # Uncomment these to test with text-2.1.2, which exports "show" by default
 # - text-2.1.2

@@ -91,6 +91,10 @@ import Data.Monoid
 import System.FSNotify.Linux
 #endif
 
+#ifdef OS_FreeBSD
+import System.FSNotify.Linux
+#endif
+
 #ifdef OS_Win32
 import System.FSNotify.Win32
 #endif
